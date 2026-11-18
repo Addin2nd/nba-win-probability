@@ -75,9 +75,21 @@ def seconds_remaining(period: pd.Series, clock_seconds: pd.Series) -> pd.Series:
     return np.where(period <= 4, regulation, clock_seconds)
 
 
-def load_pbp(path: Path, season: int) -> pd.DataFrame:
-    """Read one season of raw play-by-play and return a tidy event table."""
-    df = pd.read_csv(path, usecols=PBP_COLUMNS, low_memory=False)
+def load_pbp(path: Path, season: int, player_names: dict | None = None) -> pd.DataFrame:
+    """Read one season of raw play-by-play and return a tidy event table.
+
+    Seasons up to 2024-25 use the classic stats.nba.com format; from 2025-26
+    the NBA only publishes the newer "v3" format, which is converted first.
+    """
+    if season >= V3_FIRST_SEASON:
+        df = v3_to_classic(pd.read_csv(path, low_memory=False), player_names or {})
+    else:
+        df = pd.read_csv(path, usecols=PBP_COLUMNS, low_memory=False)
+    return tidy_events(df, season)
+
+
+def tidy_events(df: pd.DataFrame, season: int) -> pd.DataFrame:
+    df = df.copy()
     df["row"] = np.arange(len(df))
     df = df[df["PCTIMESTRING"].notna()].copy()
 
@@ -116,6 +128,64 @@ def load_pbp(path: Path, season: int) -> pd.DataFrame:
             "action_type", "side", "player_id", "player", "team", "scored",
             "home_score", "away_score", "margin", "possession", "description"]
     return out[keep].reset_index(drop=True)
+
+
+V3_FIRST_SEASON = 2025
+
+_V3_EVENT = {
+    "Made Shot": MADE_SHOT, "Missed Shot": MISSED_SHOT, "Free Throw": FREE_THROW,
+    "Rebound": REBOUND, "Turnover": TURNOVER, "Foul": FOUL, "Violation": VIOLATION,
+    "Substitution": SUB, "Timeout": TIMEOUT, "Jump Ball": JUMP_BALL, "Ejection": 11,
+    "Instant Replay": 18,
+}
+_V3_LAST_FT = {"Free Throw 1 of 1": 10, "Free Throw 2 of 2": 12, "Free Throw 3 of 3": 15}
+
+
+def v3_clock(clock: pd.Series) -> pd.Series:
+    """'PT11M39.00S' -> '11:39'."""
+    parts = clock.astype(str).str.extract(r"PT(\d+)M([\d.]+)S")
+    return parts[0].astype(int).astype(str) + ":" + parts[1].astype(float).astype(int).astype(str).str.zfill(2)
+
+
+def v3_to_classic(v3: pd.DataFrame, player_names: dict) -> pd.DataFrame:
+    """Convert stats.nba.com v3 play-by-play to the classic column layout.
+
+    v3 has one row per action, with steals/blocks as companion rows that have
+    no actionType (dropped here), short player names (restored to full names
+    from ``player_names`` when available) and h/v ``location`` instead of
+    PERSONxTYPE. Jump-ball winners are not recorded per team, so possession
+    after a jump ball is left unknown until the next possession-changing play.
+    """
+    v3 = v3[v3["actionType"].notna()].copy()
+    out = pd.DataFrame(index=v3.index)
+    out["GAME_ID"] = v3["gameId"]
+    out["EVENTNUM"] = v3["actionNumber"]
+    etype = v3["actionType"].map(_V3_EVENT)
+    period_row = v3["actionType"] == "period"
+    etype = etype.where(~period_row, np.where(v3["subType"] == "start", START_PERIOD, END_PERIOD))
+    out["EVENTMSGTYPE"] = etype.fillna(0).astype(int)
+    out["EVENTMSGACTIONTYPE"] = v3["subType"].map(_V3_LAST_FT).fillna(0).astype(int)
+    out["PERIOD"] = v3["period"]
+    out["PCTIMESTRING"] = v3_clock(v3["clock"])
+
+    is_home = v3["location"] == "h"
+    is_away = v3["location"] == "v"
+    out["HOMEDESCRIPTION"] = v3["description"].where(is_home)
+    out["VISITORDESCRIPTION"] = v3["description"].where(is_away)
+    scored = v3["scoreHome"].notna() & etype.isin([MADE_SHOT, FREE_THROW])
+    out["SCORE"] = (v3["scoreAway"].astype("Int64").astype(str) + " - "
+                    + v3["scoreHome"].astype("Int64").astype(str)).where(scored)
+
+    is_player = v3["playerName"].fillna("").ne("")
+    out["PERSON1TYPE"] = np.select([is_home & is_player, is_away & is_player, is_home, is_away],
+                                   [4, 5, 2, 3], default=0)
+    out["PLAYER1_ID"] = v3["personId"].where(is_player)
+    full = v3["personId"].map(player_names)
+    out["PLAYER1_NAME"] = full.fillna(v3["playerNameI"]).where(is_player)
+    out["PLAYER1_TEAM_ID"] = v3["teamId"].where(is_player)
+    out["PLAYER1_TEAM_ABBREVIATION"] = v3["teamTricode"].where(is_player)
+    out["PERSON3TYPE"] = 0
+    return out.reset_index(drop=True)
 
 
 def infer_possession(df: pd.DataFrame) -> pd.Series:

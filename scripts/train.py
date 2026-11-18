@@ -1,9 +1,9 @@
 """Train and compare win-probability models with a strict time split.
 
-    train: 2019-20 .. 2022-23   validate: 2023-24   test: 2024-25
+    train: 2019-20 .. 2023-24   validate: 2024-25   test: 2025-26
 
 Model choice uses the validation season only. The chosen model is then refit
-on train+validation and scored once on the untouched 2024-25 test season.
+on train+validation and scored once on the untouched 2025-26 test season.
 """
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from nbawp.model import BoostedWP, LogisticWP, add_features, calibration_table, evaluate  # noqa: E402
 
 PROCESSED = ROOT / "data" / "processed"
-TRAIN, VALID, TEST = [2019, 2020, 2021, 2022], 2023, 2024
+TRAIN, VALID, TEST = [2019, 2020, 2021, 2022, 2023], 2024, 2025
 
 
 def time_bucket(seconds_left: pd.Series) -> pd.Series:
@@ -37,7 +37,8 @@ def main() -> None:
     test = states[states["season"] == TEST]
     print(f"train {len(train):,}  valid {len(valid):,}  test {len(test):,} states")
 
-    report: dict = {"split": {"train": "2019-20 to 2022-23", "valid": "2023-24", "test": "2024-25"}}
+    report: dict = {"split": {"train": "2019-20 to 2023-24", "valid": "2024-25", "test": "2025-26"},
+                    "n_fit_states": int(len(train) + len(valid)), "n_fit_seasons": len(TRAIN) + 1}
 
     # 1) baselines + candidates on validation
     candidates = [LogisticWP(), BoostedWP()]
@@ -89,7 +90,7 @@ def main() -> None:
                      "away_score", "margin", "possession", "description", "home_win"]].copy()
     test_out["wp_home"] = p
     test_out.to_parquet(PROCESSED / "test_predictions.parquet", index=False)
-    print("saved model, metrics and 2024-25 predictions")
+    print("saved model, metrics and 2025-26 predictions")
 
 
 if __name__ == "__main__":

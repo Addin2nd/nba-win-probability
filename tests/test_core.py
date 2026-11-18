@@ -99,3 +99,30 @@ def test_wpa_charges_missed_shot_to_shooter():
     assert np.isclose(c["Shooter"], -0.04)      # the miss cost the home team 4 points
     assert np.isclose(c["Scorer"], 0.06)        # away basket, credited from away side
     assert "Rebounder" not in c.index
+
+
+def test_v3_feed_converts_to_classic_layout():
+    v3 = pd.DataFrame({
+        "gameId": 22500001, "actionNumber": [2, 4, 7, 8, 9, 10],
+        "clock": ["PT12M00.00S", "PT12M00.00S", "PT11M39.00S", "PT11M27.00S", "PT11M24.00S", "PT11M24.00S"],
+        "period": 1,
+        "teamId": [0, 1, 1, 2, 1, 1],
+        "teamTricode": ["", "LAL", "LAL", "GSW", "LAL", "LAL"],
+        "personId": [0, 10, 11, 30, 1610612747, 11],
+        "playerName": ["", "Ayton", "Dončić", "Curry", "", "Dončić"],
+        "playerNameI": ["", "D. Ayton", "L. Dončić", "S. Curry", "", "L. Dončić"],
+        "scoreHome": [0, None, 2, None, None, None], "scoreAway": [0, None, 0, None, None, None],
+        "location": [None, "h", "h", "v", "h", None],
+        "description": ["Start of 1st Period", "Jump Ball", "Doncic 14' Jumper (2 PTS)",
+                        "MISS Curry 27' 3PT", "LAKERS Rebound", "Doncic STEAL"],
+        "actionType": ["period", "Jump Ball", "Made Shot", "Missed Shot", "Rebound", None],
+        "subType": ["start", None, "Jump Shot", "Jump Shot", "Unknown", None],
+    })
+    classic = data.v3_to_classic(v3, {30: "Stephen Curry"})
+    assert classic["EVENTMSGTYPE"].tolist() == [12, 10, 1, 2, 4]      # companion row dropped
+    assert classic["PCTIMESTRING"].tolist()[2] == "11:39"
+    assert classic["SCORE"].tolist()[2] == "0 - 2"                     # "AWAY - HOME"
+    assert classic["PERSON1TYPE"].tolist() == [0, 4, 4, 5, 2]          # team rebound -> home team
+    assert classic["PLAYER1_NAME"].tolist()[3] == "Stephen Curry"
+    ev = data.tidy_events(classic, 2025)
+    assert ev["possession"].tolist() == [0, 0, -1, -1, 1]

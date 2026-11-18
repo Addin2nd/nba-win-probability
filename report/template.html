@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Warriors Win Probability</title>
-<meta name="description" content="An in-game NBA win probability model, applied to every Golden State Warriors game of 2024-25.">
+<meta name="description" content="An in-game NBA win probability model, applied to every Golden State Warriors game of 2025-26.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/plotly.js/2.35.2/plotly.min.js"></script>
@@ -97,8 +97,8 @@ a { color: var(--accent); }
   <header class="hero">
     <div class="eyebrow">NBA analytics · <span id="seasonLbl"></span></div>
     <h1>When is a lead actually safe?<br>The Warriors' season, play by play.</h1>
-    <p class="lede">A live win-probability model trained on 2.7 million game states from five NBA seasons,
-      then tested on a season it never saw: every Golden State Warriors game of 2024-25.</p>
+    <p class="lede">A live win-probability model trained on <span id="nStates"></span> game states from <span id="nSeasons"></span> NBA seasons,
+      then tested on a season it never saw: every Golden State Warriors game of <span class="seasonTxt"></span>, the season before 2026-27.</p>
     <div class="tiles" id="tiles"></div>
   </header>
 
@@ -146,7 +146,7 @@ a { color: var(--accent); }
 
   <section>
     <h2>Does the model know what it doesn't know?</h2>
-    <p class="sub">All numbers below are on the 2024-25 test season, which was never used for training or model selection. A calibrated model's "70%" should come true 70% of the time.</p>
+    <p class="sub">All numbers below are on the 2025-26 test season, which was never used for training or model selection. A calibrated model's "70%" should come true 70% of the time.</p>
     <div class="grid2">
       <div class="card"><div id="calib" class="chart"></div></div>
       <div class="card">
@@ -159,10 +159,10 @@ a { color: var(--accent); }
   <section>
     <h2>How it works</h2>
     <ul class="method">
-      <li><b>Data.</b> stats.nba.com play-by-play for 2019-20 to 2024-25 (7,056 games), via the public <a href="https://github.com/shufinskiy/nba_data">shufinskiy/nba_data</a> archive. Shot locations from the same source.</li>
+      <li><b>Data.</b> stats.nba.com play-by-play for 2019-20 to 2025-26 (8,286 games; 2025-26 converted from the newer v3 feed), via the public <a href="https://github.com/shufinskiy/nba_data">shufinskiy/nba_data</a> archive. Shot locations from the same source.</li>
       <li><b>Game state.</b> Score margin, time left, who has the ball (inferred from made shots, rebounds, turnovers and jump balls), overtime, and pre-game team strength.</li>
       <li><b>Pre-game strength.</b> An Elo rating replayed game by game in schedule order, so each game only sees results from before it (no leakage).</li>
-      <li><b>Models.</b> Logistic regression with engineered features (e.g. margin ÷ √minutes left, prior strength fading as the clock runs) against monotonic gradient-boosted trees. Selected on 2023-24, refit, then scored once on 2024-25.</li>
+      <li><b>Models.</b> Logistic regression with engineered features (e.g. margin ÷ √minutes left, prior strength fading as the clock runs) against monotonic gradient-boosted trees. Selected on 2024-25, refit, then scored once on 2025-26.</li>
       <li><b>Limitations.</b> No lineup or player-availability data, so a game a star sits out is priced like any other. WPA here is offensive and play-level; defensive stops are not credited to individual defenders.</li>
     </ul>
   </section>
@@ -205,13 +205,16 @@ function renderTiles() {
   const skill = 1 - test[sel].brier / test["Pre-game Elo only"].brier;
   const tiles = [
     [`${DATA.record[0]}–${DATA.record[1]}`, `${DATA.team_name} regular season`],
-    [`#${DATA.star_rank}`, `${DATA.star} in season WPA, of ${DATA.n_players} qualified NBA players`],
+    [`#${DATA.star_rank_pg}`, `${DATA.star} in WPA per game (+${DATA.star_wpa_pg.toFixed(2)}) among ${DATA.n_players} NBA players with 40+ games`],
     [pct(comeback.min_wp, 1), `Lowest win chance in a game they still won (${comeback.home ? "vs" : "@"} ${comeback.opp})`],
-    [pct(skill, 0), `Lower Brier score than a pre-game-only model, on unseen 2024-25 games`],
+    [pct(skill, 0), `Lower Brier score than a pre-game-only model, on unseen ${DATA.season} games`],
   ];
   document.getElementById("tiles").innerHTML = tiles.map(([v, k]) =>
     `<div class="tile"><div class="v">${esc(v)}</div><div class="k">${esc(k)}</div></div>`).join("");
   document.getElementById("seasonLbl").textContent = `${DATA.team_name} · ${DATA.season}`;
+  document.getElementById("nStates").textContent = (m.n_fit_states / 1e6).toFixed(1) + " million";
+  document.getElementById("nSeasons").textContent = ["", "one", "two", "three", "four", "five", "six", "seven"][m.n_fit_seasons] || m.n_fit_seasons;
+  document.querySelectorAll(".seasonTxt").forEach(e => e.textContent = DATA.season);
   document.querySelectorAll(".starName").forEach(e => e.textContent = DATA.star);
 }
 
@@ -372,7 +375,7 @@ function renderModel() {
     { x: c.predicted, y: c.observed, mode: "lines+markers", line: { color: css("--accent"), width: 2 },
       marker: { size: 8, color: css("--accent"), line: { color: css("--surface"), width: 2 } },
       customdata: c.n, hovertemplate: "Predicted %{x:.0%} → happened %{y:.1%}<br>%{customdata:,} game states<extra></extra>" },
-  ], baseLayout({ title: title(`Calibration: ${m.selected.toLowerCase()}, 2024-25`),
+  ], baseLayout({ title: title(`Calibration: ${m.selected.toLowerCase()}, ${DATA.season}`),
     xaxis: { range: [0, 1], tickformat: ".0%", title: { text: "Predicted home win probability" }, gridcolor: css("--grid"), zeroline: false, fixedrange: true },
     yaxis: { range: [0, 1], tickformat: ".0%", title: { text: "Observed home win rate" }, gridcolor: css("--grid"), zeroline: false, fixedrange: true },
     margin: { l: 56, r: 16, t: 36, b: 48 } }), CFG);
@@ -385,7 +388,7 @@ function renderModel() {
       `<td class="num">${s.auc.toFixed(3)}</td><td class="num">${s.ece.toFixed(3)}</td></tr>`;
   }).join("");
   document.getElementById("metricsTbl").innerHTML =
-    `<thead><tr><th>Model (test 2024-25)</th><th class="num">Log loss</th><th class="num">Brier</th><th class="num">AUC</th><th class="num">ECE</th></tr></thead><tbody>${rows}</tbody>`;
+    `<thead><tr><th>Model (test ${DATA.season})</th><th class="num">Log loss</th><th class="num">Brier</th><th class="num">AUC</th><th class="num">ECE</th></tr></thead><tbody>${rows}</tbody>`;
 
   const bt = m.by_time;
   Plotly.react("byTime", [{

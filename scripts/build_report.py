@@ -66,20 +66,26 @@ def main() -> None:
     summaries = wpa.game_summaries(pred, TEAM)
     plays = wpa.biggest_plays(pred, TEAM, n=8)
 
-    shot_df = shots.load_shots(ROOT / "data" / "raw" / "shotdetail_2024.csv")
+    shot_df = shots.load_shots(ROOT / "data" / "raw" / "shotdetail_2025.csv")
     zones = shots.zone_efficiency(shot_df, STAR)
     diet = shots.shot_diet(shot_df, TEAM_NAME)
     star_shots = shot_df[shot_df["PLAYER_NAME"] == STAR]
 
     star_rank = int(league.index[league["player"] == STAR][0]) + 1
+    per_game = league.sort_values("wpa_per_game", ascending=False).reset_index(drop=True)
+    star_rank_pg = int(per_game.index[per_game["player"] == STAR][0]) + 1
+    star_row = league[league["player"] == STAR].iloc[0]
     payload = {
-        "team": TEAM, "team_name": TEAM_NAME, "star": STAR, "season": "2024-25",
+        "team": TEAM, "team_name": TEAM_NAME, "star": STAR, "season": "2025-26",
         "record": [int(summaries["won"].sum()), int((~summaries["won"]).sum())],
         "metrics": metrics,
         "games": game_curves(pred, summaries),
         "team_wpa": team[["player", "games", "wpa", "wpa_per_game"]].round(3).to_dict(orient="records"),
         "league_wpa": league.head(15)[["player", "team", "games", "wpa"]].round(3).to_dict(orient="records"),
         "star_rank": star_rank,
+        "star_rank_pg": star_rank_pg,
+        "star_games": int(star_row["games"]),
+        "star_wpa_pg": round(float(star_row["wpa_per_game"]), 3),
         "n_players": int(len(league)),
         "plays": plays.assign(wpa_team=plays["wpa_team"].round(3)).to_dict(orient="records"),
         "zones": zones.round(3).to_dict(orient="records"),
